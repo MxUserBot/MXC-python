@@ -1,0 +1,22 @@
+[project]
+name = "mxc"
+version = "0.1.0"
+description = "Matrix Client Python"
+requires-python = ">=3.11"
+dependencies = [
+    "mautrix[encryption]>=0.21.0",
+    "pydantic>=2.12.5",
+    "loguru>=0.7.3",
+    "aiofiles>=25.1.0",
+    "cryptography>=47.0.0",
+    "pillow>=12.2.0",
+    "python-olm>=3.2.0",
+    "requests>=2.33.1",
+]
+
+[build-system]
+requires = ["setuptools>=70.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
