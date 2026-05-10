@@ -85,17 +85,19 @@ async def answer(
         txn_id=kwargs.get("txn_id"),
     )
 
-    sent_id = edit_id if edit_id else res
-
-    ignore_ids = getattr(mx, '_ignore_ids', None) or getattr(getattr(mx, '_bot', None), '_ignore_ids', None)
     if ignore_ids is not None:
-        ignore_ids.add(sent_id)
+        if edit_id:
+            ignore_ids.add(edit_id)
+            if res:
+                ignore_ids.add(res)
+        else:
+            ignore_ids.add(res)
 
     if reply_markup:
         from .emoji import attach_keyboard
-        await attach_keyboard(mx, room_id, sent_id, reply_markup, target_event)
+        await attach_keyboard(mx, room_id, edit_id or res, reply_markup, target_event)
 
-    return sent_id
+    return edit_id or res
 
 
 async def pin_room(mx, room_id) -> bool:
