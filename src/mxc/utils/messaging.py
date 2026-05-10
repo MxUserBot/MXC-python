@@ -1,3 +1,9 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 from typing import Any
 
 from loguru import logger
@@ -80,6 +86,10 @@ async def answer(
     )
 
     sent_id = edit_id if edit_id else res
+
+    ignore_ids = getattr(mx, '_ignore_ids', None) or getattr(getattr(mx, '_bot', None), '_ignore_ids', None)
+    if ignore_ids is not None:
+        ignore_ids.add(sent_id)
 
     if reply_markup:
         from .emoji import attach_keyboard

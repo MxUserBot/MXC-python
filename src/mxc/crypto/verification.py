@@ -1,10 +1,16 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 import asyncio
 import base64
 import hashlib
 import json
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 from mautrix.client import Client
@@ -15,17 +21,18 @@ from mautrix.types import (
 )
 from olm.sas import Sas
 
+
 EMOJI_LIST = [
-    "Dog", "Cat", "Lion", "Horse", "Unicorn", "Pig", "Elephant",
-    "Rabbit", "Panda", "Rooster", "Penguin", "Turtle", "Fish",
-    "Octopus", "Butterfly", "Flower", "Tree", "Cactus", "Mushroom",
-    "Globe", "Moon", "Cloud", "Fire", "Banana", "Apple", "Strawberry",
-    "Corn", "Pizza", "Cake", "Heart", "Smiley", "Robot", "Hat",
-    "Glasses", "Spanner", "Santa", "Thumbs Up", "Umbrella", "Hourglass",
-    "Clock", "Gift", "Light Bulb", "Book", "Pencil", "Paperclip",
-    "Scissors", "Lock", "Key", "Hammer", "Telephone", "Flag",
-    "Train", "Bicycle", "Aeroplane", "Rocket", "Trophy", "Ball",
-    "Guitar", "Trumpet", "Bell", "Anchor", "Headphones", "Folder", "Pin"
+    "🐕", "🐈", "🦁", "🐴", "🦄", "🐷", "🐘",
+    "🐰", "🐼", "🐓", "🐧", "🐢", "🐟",
+    "🐙", "🦋", "🌸", "🌲", "🌵", "🍄",
+    "🌍", "🌙", "☁️", "🔥", "🍌", "🍎", "🍓",
+    "🌽", "🍕", "🎂", "❤️", "😊", "🤖", "🎩",
+    "👓", "🔧", "🎅", "👍", "☂️", "⌛",
+    "⏰", "🎁", "💡", "📖", "✏️", "📎",
+    "✂️", "🔒", "🔑", "🔨", "☎️", "🚩",
+    "🚂", "🚲", "✈️", "🚀", "🏆", "⚽",
+    "🎸", "🎺", "🔔", "⚓", "🎧", "📁", "📌"
 ]
 
 
@@ -70,10 +77,19 @@ class BotSASVerification:
         elif t == "m.key.verification.mac":
             await self.handle_mac(evt)
         elif t == "m.key.verification.cancel":
+            s = self.sessions.get(evt.content.get("transaction_id"))
+            if s:
+                if s.get("result_future") and not s["result_future"].done():
+                    s["result_future"].set_result("cancelled")
+                if s.get("emoji_future") and not s["emoji_future"].done():
+                    s["emoji_future"].set_exception(asyncio.CancelledError())
             self.sessions.pop(evt.content.get("transaction_id"), None)
 
-    async def start_verification(self, user_id: str, device_id: str, room_id: str):
+    async def start_verification(self, user_id: str, device_id: str, room_id: str = None) -> Tuple[List[str], str, asyncio.Future]:
         txn_id = f"v-{uuid.uuid4().hex[:8]}"
+        loop = asyncio.get_running_loop()
+        emoji_future = loop.create_future()
+        result_future = loop.create_future()
         self.sessions[txn_id] = {
             "sas": Sas(),
             "user_id": user_id,
@@ -82,6 +98,8 @@ class BotSASVerification:
             "room_id": room_id,
             "bot_mac_sent": False,
             "other_mac_received": False,
+            "emoji_future": emoji_future,
+            "result_future": result_future,
         }
         await self.client.send_to_one_device(
             EventType.find("m.key.verification.request", EventType.Class.TO_DEVICE),
@@ -94,7 +112,25 @@ class BotSASVerification:
                 "timestamp": int(time.time() * 1000),
             },
         )
-        return txn_id
+
+        try:
+            done, pending = await asyncio.wait(
+                [emoji_future, result_future], timeout=120,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            if result_future in done:
+                result = result_future.result()
+                self.sessions.pop(txn_id, None)
+                if result == "cancelled":
+                    raise asyncio.CancelledError("Verification was cancelled")
+                raise TimeoutError("Verification timed out")
+            emojis = await emoji_future
+            return emojis, txn_id, result_future
+        except asyncio.TimeoutError:
+            if not result_future.done():
+                result_future.set_result("timeout")
+            self.sessions.pop(txn_id, None)
+            raise TimeoutError("Verification timed out waiting for emojis")
 
     async def handle_ready(self, evt: ToDeviceEvent):
         txn_id = evt.content.get("transaction_id")
@@ -218,14 +254,13 @@ class BotSASVerification:
             for i in range(7)
         ]
 
-        if s.get("room_id"):
-            await self.client.send_notice(
-                s["room_id"],
-                f"📊 <b>VERIFY EMOJI:</b>\n\n<code>{' | '.join(emojis)}</code>\n\n⏳ Confirming automatically...",
-            )
+        s["emojis"] = emojis
+        if s.get("emoji_future") and not s["emoji_future"].done():
+            s["emoji_future"].set_result(emojis)
 
         await asyncio.sleep(3)
-        asyncio.create_task(self._send_actual_mac(txn_id))
+        if s["role"] == "alice":
+            asyncio.create_task(self._send_actual_mac(txn_id))
 
     async def _send_actual_mac(self, txn_id: str):
         s = self.sessions.get(txn_id)
@@ -279,7 +314,10 @@ class BotSASVerification:
 
         s["other_mac_received"] = True
         logger.info(f"Received MAC from device {s['device_id']}")
-        await self._maybe_finish(txn_id)
+        if not s.get("bot_mac_sent"):
+            await self._send_actual_mac(txn_id)
+        else:
+            await self._maybe_finish(txn_id)
 
     async def _maybe_finish(self, txn_id: str):
         s = self.sessions.get(txn_id)
@@ -299,8 +337,6 @@ class BotSASVerification:
 
                 if hasattr(self.client.crypto, 'device_list'):
                     self.client.crypto.device_list.set_trust(s["user_id"], s["device_id"], TrustState.VERIFIED)
-
-                logger.success(f"🎊 Device {s['device_id']} verified locally!")
 
                 try:
                     full_keys = await self.client.crypto._get_full_device_keys(device)
@@ -327,10 +363,12 @@ class BotSASVerification:
                 except Exception as api_err:
                     logger.warning(f"Global signature upload failed: {api_err}")
 
-                if s.get("room_id"):
-                    await self.client.send_notice(s["room_id"], f"✅ Device <code>{s['device_id']}</code> verified!")
+            if s.get("result_future") and not s["result_future"].done():
+                s["result_future"].set_result("success")
 
         except Exception as global_err:
             logger.error(f"Error in _maybe_finish: {global_err}")
+            if s.get("result_future") and not s["result_future"].done():
+                s["result_future"].set_result("error")
         finally:
             self.sessions.pop(txn_id, None)

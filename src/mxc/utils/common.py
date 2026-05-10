@@ -1,3 +1,9 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 import os
 import platform
 import re
@@ -177,6 +183,9 @@ def convert_repo_url(url: str) -> str:
     url = (url or "").strip().rstrip("/")
     if not url:
         return ""
+
+    # Убираем .git из урла (https://github.com/user/repo.git → https://github.com/user/repo)
+    url = re.sub(r"\.git(?=/|$)", "", url)
 
     if "raw.githubusercontent.com" in url:
         return url

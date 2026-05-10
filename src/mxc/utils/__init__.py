@@ -1,3 +1,9 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 from .common import (
     COMM_DIR,
     _get_safe_path,
@@ -50,6 +56,7 @@ from .media import (
     set_rpc_media,
 )
 from .messaging import answer, pin, pin_room, unpin_room
+from .limitter import mautrix_rate_limit_patch, mautrix_rate_limit_unpatch
 from .image_packs import (
     IMAGE_PACK_ROOMS_STABLE,
     IMAGE_PACK_ROOMS_UNSTABLE,
@@ -184,5 +191,7 @@ __all__ = [
     "parse_poll_response",
     "parse_poll_start",
     "tally_poll",
+    "mautrix_rate_limit_patch",
+    "mautrix_rate_limit_unpatch",
 ]
 

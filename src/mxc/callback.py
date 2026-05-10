@@ -1,5 +1,12 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 import asyncio
 import inspect
+from functools import lru_cache
 from typing import Any
 
 from loguru import logger
@@ -14,7 +21,7 @@ class BaseCallBack:
         self.bot = bot
 
     async def get_perm_module(self, mod):
-        return self.bot.interface if getattr(mod, "_is_core", False) else self.bot.interface
+        return self.bot.interface
 
     async def _wrap_event(self, evt: MessageEvent) -> Any:
         from mxc.utils import answer, get_reply_text
@@ -37,9 +44,10 @@ class BaseCallBack:
 
         return evt
 
-    async def _dispatch_event(self, event_type: EventType, evt: Any) -> None:
+    async def _dispatch_event(self, evt: Any) -> None:
         from mxc.utils import dispatch_emoji_callback
 
+        event_type = evt.type
         if event_type in (EventType.REACTION, EventType.ROOM_REDACTION):
             if await dispatch_emoji_callback(self.bot.interface, evt):
                 return
@@ -54,7 +62,7 @@ class BaseCallBack:
 
             handlers = getattr(mod, "_event_handlers", {}).get(event_type, [])
             for handler in handlers:
-                asyncio.create_task(self._safe_run_handler(mod, handler, wrapped_evt))
+                asyncio.create_task(self._safe_run(mod, handler, wrapped_evt))
 
     def _get_handler_params(self, func: callable, reserved_count: int) -> list[inspect.Parameter]:
         orig_f = getattr(func, "__func__", func)
@@ -62,17 +70,12 @@ class BaseCallBack:
         return list(sig.parameters.values())[reserved_count:]
 
     def _extract_validation_message(self, error: ValidationError) -> str:
-        try:
-            first_error = error.errors(include_url=False)[0]
-            return str(first_error.get("msg", "Validation error"))
-        except Exception:
-            return "Validation error"
+        return str(error.errors(include_url=False)[0].get("msg", "Validation error")) if error.errors() else "Validation error"
 
     def _build_handler_kwargs(
         self,
         params: list[inspect.Parameter],
         raw_input: Any = None,
-        reply_text: str | None = None,
     ) -> dict[str, Any]:
         if not params:
             return {}
@@ -81,14 +84,10 @@ class BaseCallBack:
         source = raw_input
 
         if len(params) == 1:
-            if source in (None, "") and reply_text:
-                source = reply_text
-
             if source in (None, ""):
                 if params[0].default is inspect.Parameter.empty:
                     kwargs[params[0].name] = ""
                 return kwargs
-
             kwargs[params[0].name] = source
             return kwargs
 
@@ -103,14 +102,11 @@ class BaseCallBack:
             if i < len(params):
                 kwargs[params[i].name] = word
 
-        if reply_text:
-            mandatory = [p for p in params if p.default in (inspect.Parameter.empty, None)]
-            for p in reversed(mandatory):
-                if p.name not in kwargs:
-                    kwargs[p.name] = reply_text
-                    break
-
         return kwargs
+
+    @lru_cache(maxsize=None)
+    def _make_validated(self, func: callable) -> callable:
+        return validate_call(func, config=pd_config)
 
     async def _invoke_validated(
         self,
@@ -118,48 +114,34 @@ class BaseCallBack:
         reserved_args: list[Any],
         reserved_count: int,
         raw_input: Any = None,
-        reply_text: str | None = None,
     ) -> None:
         params = self._get_handler_params(func, reserved_count)
         kwargs = self._build_handler_kwargs(
             params=params,
             raw_input=raw_input,
-            reply_text=reply_text,
         )
 
-        v_func = validate_call(func, config=pd_config)
+        v_func = self._make_validated(func)
         await v_func(*reserved_args, **kwargs)
 
-    async def _safe_run_handler(self, mod: Any, func: callable, wrapped_evt: Any) -> None:
-        try:
-            raw_input = getattr(getattr(wrapped_evt, "content", None), "body", None)
-            if raw_input is None:
-                raw_input = getattr(wrapped_evt, "content", None)
+    async def _raw_input_from_event(self, wrapped_evt: Any) -> Any:
+        raw_input = getattr(getattr(wrapped_evt, "content", None), "body", None)
+        if raw_input is None:
+            raw_input = getattr(wrapped_evt, "content", None)
+        return raw_input
 
-            token = self.bot.interface._current_event.set(wrapped_evt)
-            try:
-                await self._invoke_validated(
-                    func=func,
-                    reserved_args=[await self.get_perm_module(mod), wrapped_evt],
-                    reserved_count=3,
-                    raw_input=raw_input,
-                )
-            finally:
-                self.bot.interface._current_event.reset(token)
-        except ValidationError as e:
-            logger.trace(
-                f"Validation skipped event handler '{func.__name__}' "
-                f"of module '{mod.name}': {self._extract_validation_message(e)}"
-            )
-        except Exception as e:
-            logger.exception(
-                f"Error in event handler '{func.__name__}' "
-                f"of module '{mod.name}': {e}"
-            )
-
-    async def _safe_run_watcher(self, mod: Any, func: callable, wrapped_evt: Any, match: Any = None) -> None:
+    async def _safe_run(
+        self,
+        mod: Any,
+        func: callable,
+        wrapped_evt: Any,
+        reserved_count: int = 3,
+        extra_args: list = None,
+        match: Any = None,
+        reply_on_validation_error: bool = False,
+    ) -> None:
         try:
-            raw_input = getattr(getattr(wrapped_evt, "content", None), "body", None)
+            raw_input = await self._raw_input_from_event(wrapped_evt)
             if match:
                 groups = match.groups()
                 raw_input = (
@@ -170,41 +152,28 @@ class BaseCallBack:
 
             token = self.bot.interface._current_event.set(wrapped_evt)
             try:
+                reserved = [await self.get_perm_module(mod), wrapped_evt]
+                if extra_args:
+                    reserved.extend(extra_args)
                 await self._invoke_validated(
                     func=func,
-                    reserved_args=[await self.get_perm_module(mod), wrapped_evt],
-                    reserved_count=3,
-                    raw_input=raw_input,
-                )
-            finally:
-                self.bot.interface._current_event.reset(token)
-        except ValidationError as e:
-            logger.trace(
-                f"Validation skipped watcher '{func.__name__}' "
-                f"of module '{mod.name}': {self._extract_validation_message(e)}"
-            )
-        except Exception as e:
-            logger.exception(f"Error in watcher '{func.__name__}' of module '{mod.name}': {e}")
-
-    async def _safe_run_state_handler(self, mod: Any, func: callable, wrapped_evt: Any, ctx: Any) -> None:
-        try:
-            raw_input = getattr(getattr(wrapped_evt, "content", None), "body", None)
-
-            token = self.bot.interface._current_event.set(wrapped_evt)
-            try:
-                await self._invoke_validated(
-                    func=func,
-                    reserved_args=[await self.get_perm_module(mod), wrapped_evt, ctx],
-                    reserved_count=4,
+                    reserved_args=reserved,
+                    reserved_count=reserved_count,
                     raw_input=raw_input,
                 )
             finally:
                 self.bot.interface._current_event.reset(token)
         except ValidationError as e:
             msg = self._extract_validation_message(e)
-            await wrapped_evt.reply(f"❌ <b>Validation:</b> <code>{msg}</code>")
+            if reply_on_validation_error:
+                await wrapped_evt.reply(f"❌ <b>Validation:</b> <code>{msg}</code>")
+            else:
+                logger.trace(
+                    f"Validation skipped '{func.__name__}' "
+                    f"of module '{mod.name}': {msg}"
+                )
         except Exception as e:
             logger.exception(
-                f"Error in state handler '{func.__name__}' "
+                f"Error in '{func.__name__}' "
                 f"of module '{mod.name}': {e}"
             )

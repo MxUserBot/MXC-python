@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.2.0",
     "python-olm>=3.2.0",
     "requests>=2.33.1",
+    "rocksdict>=0.3.29",
 ]
 
 [build-system]

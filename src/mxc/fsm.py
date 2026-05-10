@@ -1,3 +1,6 @@
+import time
+
+
 class State:
     def __init__(self):
         self.state: str = ""
@@ -27,12 +30,16 @@ class FSM:
     def mark_outgoing(self, event_id: str) -> None:
         self._outgoing.add(event_id)
 
-    def set_state(self, event, state_obj) -> None:
+    def set_state(self, event, state_obj, ttl: int = 0) -> None:
         key = self._get_key(event)
         s = state_obj.state if hasattr(state_obj, 'state') else state_obj
         if key not in self._states:
             self._states[key] = {"data": {}}
         self._states[key]["state"] = s
+        if ttl > 0:
+            self._states[key]["_expires_at"] = time.monotonic() + ttl
+        else:
+            self._states[key].pop("_expires_at", None)
 
     def get_state(self, event, ignore_ids: set | None = None):
         eid = getattr(event, "event_id", None)
@@ -40,7 +47,14 @@ class FSM:
             return None
         if ignore_ids and eid in ignore_ids:
             return None
-        return self._states.get(self._get_key(event), {}).get("state")
+        entry = self._states.get(self._get_key(event))
+        if not entry:
+            return None
+        expires_at = entry.get("_expires_at")
+        if expires_at is not None and time.monotonic() >= expires_at:
+            self.finish(event)
+            return None
+        return entry.get("state")
 
     def get_data(self, event) -> dict:
         return self._states.get(self._get_key(event), {}).get("data", {})
@@ -59,8 +73,8 @@ class FSMContext:
         self._manager = manager
         self._event = event
 
-    async def set_state(self, state) -> None:
-        self._manager.set_state(self._event, state)
+    async def set_state(self, state, ttl: int = 0) -> None:
+        self._manager.set_state(self._event, state, ttl=ttl)
 
     async def update_data(self, **kwargs) -> None:
         self._manager.update_data(self._event, **kwargs)

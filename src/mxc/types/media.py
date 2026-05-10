@@ -1,3 +1,9 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 import io
 from dataclasses import dataclass
 from typing import Union
@@ -44,9 +50,10 @@ class Media:
 
         content = MediaMessageEventContent(
             msgtype=self._msgtype,
-            body=body_text,
+            body=caption_text or body_text,
             info=self._info_class(**kwargs) if self._info_class else None
         )
+        content.filename = body_text
 
         if html and caption_text:
             content.format = Format.HTML

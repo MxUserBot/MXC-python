@@ -1,9 +1,53 @@
+# ©️ Pasha Hatsune, 2025-2026
+# This file is a part of MXC
+# 🌐 https://github.com/MxUserBot/MXC
+# You can redistribute it and/or modify it under the terms of the GNU AGPLv3
+# 🔑 https://www.gnu.org/licenses/agpl-3.0.html
+
 import asyncio
 from typing import Optional
 
 from mautrix.types import Event, EventType, MessageEvent
 
+from mxc.types import MsgType
+
 _CRYPTO_BACKGROUND_TASKS = set()
+
+_MESSAGE_TYPES = frozenset({
+    MsgType.TEXT, MsgType.IMAGE, MsgType.VIDEO, MsgType.AUDIO,
+    MsgType.FILE, MsgType.EMOTE, MsgType.NOTICE, MsgType.STICKER,
+})
+
+_MSGTYPE_MAP = {
+    "m.text": MsgType.TEXT,
+    "m.image": MsgType.IMAGE,
+    "m.video": MsgType.VIDEO,
+    "m.audio": MsgType.AUDIO,
+    "m.file": MsgType.FILE,
+    "m.emote": MsgType.EMOTE,
+    "m.notice": MsgType.NOTICE,
+}
+
+
+def _event_matches(evt: dict, types: set[MsgType]) -> bool:
+    evt_type = evt.get("type")
+
+    if evt_type == "m.room.encrypted":
+        return bool(types & _MESSAGE_TYPES)
+
+    if evt_type == "m.sticker":
+        return MsgType.STICKER in types
+
+    if evt_type == "m.room.message":
+        msgtype = evt.get("content", {}).get("msgtype")
+        if msgtype:
+            return _MSGTYPE_MAP.get(msgtype) in types
+        return False
+
+    try:
+        return MsgType(evt_type) in types
+    except ValueError:
+        return False
 
 
 async def fetch_room_messages(
@@ -12,6 +56,7 @@ async def fetch_room_messages(
     limit: int = 100,
     from_token: str = None,
     direction: str = "b",
+    types: Optional[set[MsgType]] = None,
 ) -> dict:
     query_params = {
         "dir": direction,
@@ -36,6 +81,17 @@ async def fetch_room_messages(
                     response["chunk"][i] = evt_obj.serialize()
                 except Exception:
                     pass
+
+        if types is not None:
+            if not isinstance(types, set):
+                types = set(types)
+            filtered = []
+            for evt in response["chunk"]:
+                if evt.get("unsigned", {}).get("redacted_because"):
+                    continue
+                if _event_matches(evt, types):
+                    filtered.append(evt)
+            response["chunk"] = filtered
 
     return response
 
