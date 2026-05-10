@@ -23,12 +23,18 @@ class FSM:
     def __init__(self):
         self._states = {}
         self._outgoing: set = set()
+        self._processed_events: set = set()
 
     def _get_key(self, event) -> str:
         return f"{event.room_id}:{event.sender}"
 
     def mark_outgoing(self, event_id: str) -> None:
         self._outgoing.add(event_id)
+
+    def mark_processed(self, event) -> None:
+        eid = getattr(event, "event_id", None)
+        if eid:
+            self._processed_events.add(eid)
 
     def set_state(self, event, state_obj, ttl: int = 0) -> None:
         key = self._get_key(event)
@@ -44,6 +50,8 @@ class FSM:
     def get_state(self, event, ignore_ids: set | None = None):
         eid = getattr(event, "event_id", None)
         if eid and eid in self._outgoing:
+            return None
+        if eid and eid in self._processed_events:
             return None
         if ignore_ids and eid in ignore_ids:
             return None
