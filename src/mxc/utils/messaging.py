@@ -85,6 +85,7 @@ async def answer(
         txn_id=kwargs.get("txn_id"),
     )
 
+    ignore_ids = getattr(mx, '_ignore_ids', None) or getattr(getattr(mx, '_bot', None), '_ignore_ids', None)
     if ignore_ids is not None:
         if edit_id:
             ignore_ids.add(edit_id)
