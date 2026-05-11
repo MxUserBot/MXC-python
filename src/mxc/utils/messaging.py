@@ -60,7 +60,7 @@ async def answer(
 
         if result is not None:
             if reply_markup:
-                from .emoji import attach_keyboard
+                from .keyboard import attach_keyboard
                 await attach_keyboard(mx, room_id, result, reply_markup, target_event)
             return result
 
@@ -95,7 +95,7 @@ async def answer(
             ignore_ids.add(res)
 
     if reply_markup:
-        from .emoji import attach_keyboard
+        from .keyboard import attach_keyboard
         await attach_keyboard(mx, room_id, edit_id or res, reply_markup, target_event)
 
     return edit_id or res

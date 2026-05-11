@@ -2,6 +2,7 @@ from enum import Enum as _Enum
 
 from mautrix.types import EventType
 
+from .emoji import EmojiButton
 from .handler import InterceptHandler
 from .media import Image, Audio, Video, Document, Sticker, Media, AnyMedia
 

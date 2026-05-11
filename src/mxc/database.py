@@ -13,8 +13,20 @@ class Database:
         self._lock = RLock()
 
         self._set_permissions(path)
+        self._cleanup_logs(path)
 
         self._cipher = Fernet(master_key)
+
+    @staticmethod
+    def _cleanup_logs(path: str):
+        import os
+        for name in ("LOG.old", "LOG"):
+            p = os.path.join(path, name)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
     @staticmethod
     def _set_permissions(path: str):

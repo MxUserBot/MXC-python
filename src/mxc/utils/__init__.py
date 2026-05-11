@@ -25,13 +25,11 @@ from .common import (
     starts_with_command,
 )
 from .emoji import (
-    Button,
     EmojiButton,
     EmojiCallbackContext,
     EmojiCallbackSession,
     EmojiKeyBoard,
     EmojiPage,
-    btn,
     dispatch_emoji_callback,
     emoji_callback,
 )
@@ -105,7 +103,6 @@ from .polls import (
 
 __all__ = [
     "COMM_DIR",
-    "Button",
     "EmojiButton",
     "EmojiCallbackContext",
     "EmojiCallbackSession",
@@ -113,7 +110,6 @@ __all__ = [
     "EmojiPage",
     "_get_safe_path",
     "answer",
-    "btn",
     "clear_rpc",
     "convert_repo_url",
     "decrypt_event",

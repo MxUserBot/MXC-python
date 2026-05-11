@@ -7,89 +7,38 @@
 import asyncio
 import inspect
 import random
+import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Union
+from typing import Any
 
 from loguru import logger
 from mautrix.errors import MLimitExceeded, MatrixRequestError
 from mautrix.types import EventType
 
+from ..types import EmojiButton
+from .keyboard import (
+    EmojiButtonsInput,
+    EmojiCallback,
+    EmojiKeyBoard,
+    _normalize_emoji_buttons,
+    attach_keyboard,
+)
 from .messaging import answer
 
 
-@dataclass(slots=True)
-class EmojiButton:
-    emoji: str
-    data: Any = None
+EMOJI_SHORTCODE_RE = re.compile(r"%([a-zA-Z0-9_-]+)%")
 
 
-@dataclass
-class EmojiKeyBoard:
-    rows: Sequence[Union[EmojiButton, Sequence[EmojiButton]]]
-    callback: Callable[["EmojiCallbackContext"], Awaitable[None]]
-
-    ttl: int = 0
-    allowed_senders: Union[str, Sequence[str], None] = None
-    single_use: bool = False
-    clear_on_timeout: bool = False
-    remove_clicked: bool = True
-    keep_reactions: bool = True
-    preserve_order: bool = True
-    newest_first: bool = True
-    allow_sudo: bool = True
-    data: dict = field(default_factory=dict)
-
-
-EmojiCallback = Callable[["EmojiCallbackContext"], Awaitable[None] | None]
-EmojiButtonsInput = Mapping[str, Any] | Sequence[EmojiButton | str | tuple]
-
-
-def _normalize_emoji_buttons(
-    buttons: EmojiButtonsInput,
-) -> dict[str, EmojiButton]:
-    if isinstance(buttons, Mapping):
-        return {emoji: EmojiButton(emoji=emoji, data=data) for emoji, data in buttons.items()}
-    return {btn.emoji: btn for btn in buttons}
-
-
-async def attach_keyboard(mx, room_id: str, message_id: str, markup: EmojiKeyBoard, event: Any):
-    flat_buttons = []
-    for row in markup.rows:
-        if isinstance(row, (list, tuple)):
-            flat_buttons.extend(row)
-        else:
-            flat_buttons.append(row)
-
-    allowed = markup.allowed_senders
-    if allowed is None and event:
-        allowed = {event.sender}
-
-    await emoji_callback(
-        mx=mx,
-        room_id=room_id,
-        message_id=message_id,
-        buttons=flat_buttons,
-        callback=markup.callback,
-        allowed_senders=allowed,
-        ttl=markup.ttl,
-        single_use=markup.single_use,
-        clear_reactions_on_timeout=markup.clear_on_timeout,
-        remove_clicked=markup.remove_clicked,
-        keep_reactions=markup.keep_reactions,
-        preserve_order=markup.preserve_order,
-        newest_first=markup.newest_first,
-        allow_sudo=markup.allow_sudo,
-        data=markup.data,
-    )
-
-
-Button = EmojiButton
-
-
-def btn(key: str, payload: Any = None) -> EmojiButton:
-    return EmojiButton(key=key, payload=key if payload is None else payload)
+def render_emojis(text: str, emoji_map: dict[str, str]) -> str:
+    def _repl(m):
+        sc = m.group(1)
+        url = emoji_map.get(sc)
+        if not url:
+            return m.group(0)
+        return f'<img src="{url}" style="display: inline-block; vertical-align: -2px; height: 32px;">'
+    return EMOJI_SHORTCODE_RE.sub(_repl, text)
 
 
 @dataclass(slots=True)
@@ -130,8 +79,8 @@ class EmojiCallbackContext:
     async def react(self, key: str) -> str | None:
         return await self.mx.client.react(self.room_id, self.message_id, key)
 
-    async def close(self, clear_reactions: bool = False) -> None:
-        await self.session.close(clear_reactions=clear_reactions)
+    async def close(self) -> None:
+        await self.session.close()
 
     async def refresh(self, key: str | None = None, force_order: bool = False) -> None:
         if force_order:
@@ -186,8 +135,6 @@ class EmojiCallbackSession:
     preserve_order: bool = True
     newest_first: bool = True
     allow_sudo: bool = True
-    single_use: bool = False
-    clear_reactions_on_timeout: bool = False
     data: dict[str, Any] = field(default_factory=dict)
     reaction_events: dict[str, str] = field(default_factory=dict)
     closed: bool = False
@@ -195,8 +142,6 @@ class EmojiCallbackSession:
     _timeout_task: asyncio.Task | None = None
 
     async def start(self) -> "EmojiCallbackSession":
-        _EMOJI_CALLBACKS_BY_MESSAGE[self.message_id] = self
-
         if self.ttl > 0:
             self._expires_at = time.monotonic() + self.ttl
             self._timeout_task = asyncio.create_task(self._expire_later())
@@ -204,13 +149,15 @@ class EmojiCallbackSession:
         if self.keep_reactions:
             await self.refresh()
 
+        _EMOJI_CALLBACKS_BY_MESSAGE[self.message_id] = self
+
         return self
 
     async def _expire_later(self) -> None:
         try:
             await asyncio.sleep(self.ttl)
             if not self.closed and self.is_expired:
-                await self.close(clear_reactions=self.clear_reactions_on_timeout)
+                await self.close()
         except asyncio.CancelledError:
             return
         except Exception as e:
@@ -299,7 +246,7 @@ class EmojiCallbackSession:
             except Exception:
                 pass
 
-    async def close(self, clear_reactions: bool = False) -> None:
+    async def close(self) -> None:
         if self.closed:
             return
 
@@ -315,13 +262,12 @@ class EmojiCallbackSession:
         if self._timeout_task and self._timeout_task is not asyncio.current_task():
             self._timeout_task.cancel()
 
-        if clear_reactions:
-            for reaction_id in reaction_ids:
-                try:
-                    _EMOJI_IGNORED_REDACTIONS.add(reaction_id)
-                    await self.mx.client.redact(self.room_id, reaction_id)
-                except Exception:
-                    _EMOJI_IGNORED_REDACTIONS.discard(reaction_id)
+        for reaction_id in reaction_ids:
+            try:
+                _EMOJI_IGNORED_REDACTIONS.add(reaction_id)
+                await self.mx.client.redact(self.room_id, reaction_id)
+            except Exception:
+                _EMOJI_IGNORED_REDACTIONS.discard(reaction_id)
 
     async def handle(
         self,
@@ -334,7 +280,7 @@ class EmojiCallbackSession:
             return False
 
         if self.is_expired:
-            await self.close(clear_reactions=self.clear_reactions_on_timeout)
+            await self.close()
             return True
 
         button = self.buttons.get(key)
@@ -379,10 +325,6 @@ class EmojiCallbackSession:
         if self.closed:
             return True
 
-        if self.single_use:
-            await self.close(clear_reactions=False)
-            return True
-
         if self.keep_reactions:
             await self.sync_reactions(force=is_redaction and self.preserve_order)
 
@@ -403,8 +345,6 @@ async def emoji_callback(
     preserve_order: bool = True,
     newest_first: bool = True,
     allow_sudo: bool = True,
-    single_use: bool = False,
-    clear_reactions_on_timeout: bool = False,
     data: dict[str, Any] | None = None,
 ) -> EmojiCallbackSession:
     session = EmojiCallbackSession(
@@ -420,8 +360,6 @@ async def emoji_callback(
         preserve_order=preserve_order,
         newest_first=newest_first,
         allow_sudo=allow_sudo,
-        single_use=single_use,
-        clear_reactions_on_timeout=clear_reactions_on_timeout,
         data=data or {},
     )
     return await session.start()
@@ -464,7 +402,7 @@ async def dispatch_emoji_callback(mx: Any, event: Any) -> bool:
 
         message_session = _EMOJI_CALLBACKS_BY_MESSAGE.get(redacted_id)
         if message_session:
-            await message_session.close(clear_reactions=False)
+            await message_session.close()
             return True
 
         session = _EMOJI_CALLBACKS_BY_REACTION.get(redacted_id)
