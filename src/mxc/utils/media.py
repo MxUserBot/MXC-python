@@ -120,7 +120,7 @@ async def send_image(mx: Any, room_id: str, media, text: str | None = None, html
             thumb_img.save(t_io, format="PNG")
             thumb_bytes = t_io.getvalue()
     except Exception as e:
-        logger.warning(f"Ошибка генерации тумбы: {e}")
+        raise e
 
     filename = media.filename or f"image_{uuid.uuid4().hex[:4]}.png"
 

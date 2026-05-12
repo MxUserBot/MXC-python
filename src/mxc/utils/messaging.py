@@ -61,7 +61,7 @@ async def answer(
         if result is not None:
             if reply_markup:
                 from .keyboard import attach_keyboard
-                await attach_keyboard(mx, room_id, result, reply_markup, target_event)
+                await attach_keyboard(mx, room_id, edit_id or result, reply_markup, target_event)
             return result
 
     body_text = text or ""

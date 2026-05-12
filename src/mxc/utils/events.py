@@ -197,11 +197,10 @@ async def get_reply_text(mx, event: MessageEvent) -> str | None | bool:
     try:
         replied_event = await get_reply_event(mx, event)
         if not replied_event:
-            raise Exception("Событие не найдено")
-    except Exception as e:
-        from .messaging import answer
-
-        await answer(mx, text=f"❌ <b>Не удалось скачать сообщение:</b> {e}", event=event)
+            return None
+        if replied_event.type == EventType.ROOM_ENCRYPTED:
+            return None
+    except Exception:
         return None
 
     return getattr(replied_event.content, "body", "")
