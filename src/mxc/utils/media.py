@@ -8,7 +8,6 @@ import io
 import uuid
 from typing import Any, Tuple
 
-from loguru import logger
 from mautrix.api import Method
 from mautrix.crypto.attachments import decrypt_attachment, encrypt_attachment
 from mautrix.types import EncryptedFile, EventType, ThumbnailInfo
@@ -190,20 +189,59 @@ async def send_document(mx: Any, room_id: str, media, text: str | None = None, h
 
 
 async def send_sticker(mx: Any, room_id: str, media, text: str | None = None, html: bool = True, edit_id: str | None = None, **kwargs) -> str:
+    from mautrix.types import EventType
+
     file_bytes = await _get_media_bytes(mx, media.url)
-    content = await media.to_mautrix_content(text=text, html=html)
-    if not content.info.size:
-        content.info.size = len(file_bytes)
+
+    body = text or getattr(media, "body", getattr(media, "filename", "sticker"))
 
     filename = media.filename or f"sticker_{uuid.uuid4().hex[:4]}.webp"
-    content.url, content.file = await encrypt(mx, room_id, file_bytes, content.info.mimetype, filename)
 
-    if "relates_to" in kwargs:
-        content.relates_to = kwargs.pop("relates_to")
+    url, enc_file = await encrypt(mx, room_id, file_bytes, media.mimetype or "image/webp", filename)
+
+    info = {
+        "mimetype": media.mimetype or "image/webp",
+        "w": media.w,
+        "h": media.h,
+        "size": len(file_bytes) if not getattr(media, "size", None) else media.size,
+    }
+
+    content = {
+        "body": body,
+        "info": info,
+    }
+
+    if url:
+        content["url"] = url
+    if enc_file:
+        content["file"] = enc_file.serialize() if hasattr(enc_file, "serialize") else enc_file
+
+    relates_to = kwargs.pop("relates_to", None)
+    if relates_to:
+        if hasattr(relates_to, "serialize"):
+            content["m.relates_to"] = relates_to.serialize()
+        else:
+            content["m.relates_to"] = relates_to
+
     if edit_id:
-        content.set_edit(edit_id)
+        new_content = dict(content)
+        if "m.relates_to" in new_content:
+            del new_content["m.relates_to"]
+        content["m.relates_to"] = {
+            "rel_type": "m.replace",
+            "event_id": edit_id,
+            "m.new_content": new_content,
+        }
 
-    return await mx.client.send_message_event(room_id, EventType.STICKER, content, **kwargs)
+    txn = uuid.uuid4().hex
+
+    resp = await mx.client.api.request(
+        Method.PUT,
+        f"/_matrix/client/v3/rooms/{room_id}/send/m.sticker/{txn}",
+        content=content,
+    )
+
+    return resp.get("event_id")
 
 
 async def set_rpc_media(
