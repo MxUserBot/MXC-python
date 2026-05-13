@@ -125,9 +125,18 @@ class BaseCallBack:
         await v_func(*reserved_args, **kwargs)
 
     async def _raw_input_from_event(self, wrapped_evt: Any) -> Any:
-        raw_input = getattr(getattr(wrapped_evt, "content", None), "body", None)
+        content = getattr(wrapped_evt, "content", None)
+        if content:
+            relates = getattr(content, "relates_to", None) or getattr(content, "_relates_to", None)
+            if relates and getattr(relates, "rel_type", None) == "m.replace":
+                new_content = getattr(content, "new_content", None)
+                if new_content:
+                    raw_input = getattr(new_content, "body", None)
+                    if raw_input:
+                        return raw_input
+        raw_input = getattr(content, "body", None)
         if raw_input is None:
-            raw_input = getattr(wrapped_evt, "content", None)
+            raw_input = content
         return raw_input
 
     async def _safe_run(

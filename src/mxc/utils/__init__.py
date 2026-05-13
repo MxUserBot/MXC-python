@@ -44,6 +44,7 @@ from .events import (
 from .media import (
     clear_rpc,
     download_message_media,
+    download_message_thumbnail,
     encrypt,
     send_audio,
     send_document,
@@ -153,6 +154,7 @@ __all__ = [
     "USAGE_EMOTICON",
     "USAGE_STICKER",
     "download_and_upload_media",
+    "download_message_thumbnail",
     "emoji_for_usage",
     "fetch_pack_state",
     "find_pack_by_name",

@@ -68,7 +68,16 @@ async def get_args_raw(mx, event) -> str:
     if isinstance(event, str):
         cmd_text = event
     elif hasattr(event, "content") and hasattr(event.content, "body"):
-        cmd_text = event.content.body
+        content = event.content
+        relates = getattr(content, "relates_to", None) or getattr(content, "_relates_to", None)
+        if relates and getattr(relates, "rel_type", None) == "m.replace":
+            new_content = getattr(content, "new_content", None)
+            if new_content:
+                cmd_text = getattr(new_content, "body", None) or ""
+        if not cmd_text:
+            from .events import _apply_latest_edit
+            await _apply_latest_edit(mx, event.room_id, event.event_id, event)
+            cmd_text = event.content.body
     elif hasattr(event, "message"):
         cmd_text = event.message
 

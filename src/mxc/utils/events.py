@@ -178,6 +178,21 @@ async def get_reply_event(mx, event: MessageEvent) -> Optional[MessageEvent]:
     if not relates:
         return None
 
+    if getattr(relates, "rel_type", None) == "m.replace":
+        try:
+            original = await mx.client.get_event(event.room_id, relates.event_id)
+            await decrypt_event(mx, original)
+            await _apply_latest_edit(mx, event.room_id, relates.event_id, original)
+            orig_relates = getattr(original.content, "relates_to", None) or getattr(original.content, "_relates_to", None)
+            if orig_relates and getattr(orig_relates, "in_reply_to", None) and orig_relates.in_reply_to.event_id:
+                replied = await mx.client.get_event(event.room_id, orig_relates.in_reply_to.event_id)
+                await decrypt_event(mx, replied)
+                await _apply_latest_edit(mx, event.room_id, orig_relates.in_reply_to.event_id, replied)
+                return replied
+        except Exception:
+            pass
+        return None
+
     reply_to = getattr(relates, "in_reply_to", None)
     if not reply_to or not reply_to.event_id:
         return None

@@ -6,7 +6,7 @@
 
 import io
 import uuid
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 from mautrix.api import Method
 from mautrix.crypto.attachments import decrypt_attachment, encrypt_attachment
@@ -65,6 +65,36 @@ async def download_message_media(mx: Any, event_or_content: Any) -> tuple[bytes,
 
     data = await mx.client.download_media(url)
     return data, filename, mimetype, size or len(data)
+
+
+async def download_message_thumbnail(mx: Any, event_or_content: Any) -> Optional[bytes]:
+    if hasattr(event_or_content, "content"):
+        from .events import decrypt_event
+
+        await decrypt_event(mx, event_or_content)
+        content = event_or_content.content
+    else:
+        content = event_or_content
+
+    info = getattr(content, "info", None)
+    if not info:
+        return None
+
+    thumb_file = getattr(info, "thumbnail_file", None)
+    if thumb_file:
+        ciphertext = await mx.client.download_media(thumb_file.url)
+        return decrypt_attachment(
+            ciphertext,
+            thumb_file.key.key,
+            thumb_file.hashes.get("sha256"),
+            thumb_file.iv,
+        )
+
+    thumb_url = getattr(info, "thumbnail_url", None)
+    if thumb_url:
+        return await mx.client.download_media(str(thumb_url))
+
+    return None
 
 
 async def encrypt(
