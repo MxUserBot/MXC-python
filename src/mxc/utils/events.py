@@ -140,7 +140,37 @@ async def decrypt_event(mx, event, context_event: MessageEvent = None) -> bool:
             except Exception:
                 continue
 
-    return False
+        return False
+
+
+async def _apply_latest_edit(mx, room_id: str, event_id: str, target: MessageEvent) -> None:
+    try:
+        url = (
+            f"{mx.client.api.base_url}/_matrix/client/v1/rooms/"
+            f"{room_id}/relations/{event_id}/m.replace"
+        )
+        headers = {"Authorization": f"Bearer {mx.client.api.token}"}
+
+        async with mx.client.api.session.get(url, headers=headers) as res:
+            if res.status == 200:
+                data = await res.json()
+                chunks = data.get("chunk", [])
+                if chunks:
+                    latest_dict = max(chunks, key=lambda x: x.get("origin_server_ts", 0))
+                    latest_edit_event = MessageEvent.deserialize(latest_dict)
+                    await decrypt_event(mx, latest_edit_event)
+
+                    content = latest_edit_event.content
+                    new_content = getattr(content, "new_content", None)
+                    if not new_content and isinstance(content, dict):
+                        new_content = content.get("m.new_content")
+
+                    if new_content:
+                        new_body = getattr(new_content, "body", None) or new_content.get("body")
+                        if new_body:
+                            target.content.body = new_body
+    except Exception:
+        pass
 
 
 async def get_reply_event(mx, event: MessageEvent) -> Optional[MessageEvent]:
@@ -156,33 +186,7 @@ async def get_reply_event(mx, event: MessageEvent) -> Optional[MessageEvent]:
         replied_event = await mx.client.get_event(event.room_id, reply_to.event_id)
         await decrypt_event(mx, replied_event)
 
-        try:
-            url = (
-                f"{mx.client.api.base_url}/_matrix/client/v1/rooms/"
-                f"{event.room_id}/relations/{reply_to.event_id}/m.replace"
-            )
-            headers = {"Authorization": f"Bearer {mx.client.api.token}"}
-
-            async with mx.client.api.session.get(url, headers=headers) as res:
-                if res.status == 200:
-                    data = await res.json()
-                    chunks = data.get("chunk", [])
-                    if chunks:
-                        latest_dict = max(chunks, key=lambda x: x.get("origin_server_ts", 0))
-                        latest_edit_event = MessageEvent.deserialize(latest_dict)
-                        await decrypt_event(mx, latest_edit_event)
-
-                        content = latest_edit_event.content
-                        new_content = getattr(content, "new_content", None)
-                        if not new_content and isinstance(content, dict):
-                            new_content = content.get("m.new_content")
-
-                        if new_content:
-                            new_body = getattr(new_content, "body", None) or new_content.get("body")
-                            if new_body:
-                                replied_event.content.body = new_body
-        except Exception:
-            pass
+        await _apply_latest_edit(mx, event.room_id, reply_to.event_id, replied_event)
 
         return replied_event
     except Exception as e:
@@ -221,14 +225,18 @@ async def get_context_events(
     events = []
 
     for evt_dict in response.get("events_before", []):
-        evt = MessageEvent.deserialize(evt_dict)
+        evt = Event.deserialize(evt_dict)
         await decrypt_event(mx, evt)
+        await _apply_latest_edit(mx, room_id, evt.event_id, evt)
         events.append(evt)
+
+    events.reverse()
 
     event_dict = response.get("event")
     if event_dict:
-        evt = MessageEvent.deserialize(event_dict)
+        evt = Event.deserialize(event_dict)
         await decrypt_event(mx, evt)
+        await _apply_latest_edit(mx, room_id, evt.event_id, evt)
         events.append(evt)
 
     return events
