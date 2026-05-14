@@ -4,7 +4,7 @@ from mautrix.types import EventType
 
 from .emoji import EmojiButton
 from .handler import InterceptHandler
-from .media import Image, Audio, Video, Document, Sticker, Media, AnyMedia
+from .media import DownloadMeta, Image, Audio, Video, Document, Sticker, Media, AnyMedia
 
 
 class MsgType(str, _Enum):
@@ -46,6 +46,7 @@ __all__ = [
     "Document",
     "Sticker",
     "AnyMedia",
+    "DownloadMeta",
     "MsgType",
     "POLL_START",
     "POLL_RESPONSE",

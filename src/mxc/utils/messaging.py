@@ -101,36 +101,93 @@ async def answer(
     return edit_id or res
 
 
-async def pin_room(mx, room_id) -> bool:
-    await mx.client.set_room_tag(room_id, "m.favorite", RoomTagInfo(order=0.0))
-    return True
+async def create_room(
+    mx,
+    name: str,
+    is_direct: bool = False,
+    invitees: list[str] | None = None,
+    avatar_url: str | None = None,
+    topic: str | None = None,
+    power_level_override: dict | None = None,
+) -> str:
+    initial_state = []
+    if avatar_url:
+        initial_state.append({
+            "type": "m.room.avatar",
+            "content": {"url": avatar_url},
+        })
+
+    kwargs = dict(
+        name=name,
+        is_direct=is_direct,
+        invitees=invitees or [],
+        initial_state=initial_state or None,
+        topic=topic,
+    )
+    if power_level_override:
+        kwargs["power_level_override"] = power_level_override
+    room_id = await mx.client.create_room(**kwargs)
+
+    return str(room_id)
 
 
-async def unpin_room(mx, room_id) -> bool:
-    await mx.client.remove_room_tag(room_id, "m.favorite")
-    return True
+async def join_room(mx, room_id: str) -> None:
+    await mx.client.join_room(room_id)
 
 
-async def pin(mx, room_id: str, event_id: str, unpin: bool = False):
-    try:
+async def pin(mx, room_id: str, event_id: str | None = None) -> bool:
+    if event_id:
         try:
-            current_state = await mx.client.get_state_event(room_id, EventType.ROOM_PINNED_EVENTS)
-            pinned = current_state.get("pinned", []) if current_state else []
-        except Exception:
-            pinned = []
+            try:
+                current = await mx.client.get_state_event(room_id, EventType.ROOM_PINNED_EVENTS)
+                pinned = current.get("pinned", []) if current else []
+            except Exception:
+                pinned = []
+            if event_id not in pinned:
+                pinned.append(event_id)
+            await mx.client.send_state_event(
+                room_id=room_id,
+                event_type=EventType.ROOM_PINNED_EVENTS,
+                content={"pinned": pinned},
+                state_key="",
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to pin event {event_id}: {e}")
+            return False
 
-        if unpin:
+    try:
+        await mx.client.set_room_tag(room_id, "m.favorite", RoomTagInfo(order=0.0))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to favorite room {room_id}: {e}")
+        return False
+
+
+async def unpin(mx, room_id: str, event_id: str | None = None) -> bool:
+    if event_id:
+        try:
+            try:
+                current = await mx.client.get_state_event(room_id, EventType.ROOM_PINNED_EVENTS)
+                pinned = current.get("pinned", []) if current else []
+            except Exception:
+                pinned = []
             if event_id in pinned:
                 pinned.remove(event_id)
-        elif event_id not in pinned:
-            pinned.append(event_id)
+            await mx.client.send_state_event(
+                room_id=room_id,
+                event_type=EventType.ROOM_PINNED_EVENTS,
+                content={"pinned": pinned},
+                state_key="",
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to unpin event {event_id}: {e}")
+            return False
 
-        return await mx.client.send_state_event(
-            room_id=room_id,
-            event_type=EventType.ROOM_PINNED_EVENTS,
-            content={"pinned": pinned},
-            state_key="",
-        )
+    try:
+        await mx.client.remove_room_tag(room_id, "m.favorite")
+        return True
     except Exception as e:
-        logger.error(f"Failed to pin/unpin {event_id}: {e}")
-        return None
+        logger.error(f"Failed to unfavorite room {room_id}: {e}")
+        return False

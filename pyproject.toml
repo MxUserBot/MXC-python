@@ -1,6 +1,6 @@
 [project]
 name = "mxc"
-version = "0.1.3"
+version = "0.1.4"
 description = "Matrix Client Python"
 requires-python = ">=3.11"
 dependencies = [

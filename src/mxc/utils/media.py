@@ -13,6 +13,8 @@ from mautrix.crypto.attachments import decrypt_attachment, encrypt_attachment
 from mautrix.types import EncryptedFile, EventType, ThumbnailInfo
 from PIL import Image as PILImage
 
+from mxc.types.media import DownloadMeta, Image as MxcImage, Media
+
 from .common import request
 
 RPC_NAMESPACE = "com.ip-logger.msc4320.rpc"
@@ -30,14 +32,66 @@ async def _get_media_bytes(mx: Any, media_url: bytes | str) -> bytes:
     raise ValueError(f"Cannot read media bytes from: {type(media_url)}")
 
 
-async def download_message_media(mx: Any, event_or_content: Any) -> tuple[bytes, str, str, int | None]:
-    if hasattr(event_or_content, "content"):
+async def upload(mx: Any, media: Any, mime_type: str | None = None, **kwargs) -> str:
+    if isinstance(media, Media):
+        if isinstance(media.url, str) and media.url.startswith("mxc://"):
+            return media.url
+        data = await _get_media_bytes(mx, media.url)
+        return str(await mx.client.upload_media(data, mime_type=media.mimetype, filename=media.filename, **kwargs))
+
+    if isinstance(media, bytes):
+        return str(await mx.client.upload_media(media, mime_type=mime_type or "application/octet-stream", **kwargs))
+
+    if isinstance(media, str):
+        if media.startswith("mxc://"):
+            return media
+        data = await request(media, return_type="bytes")
+        return str(await mx.client.upload_media(data, mime_type=mime_type or "application/octet-stream", **kwargs))
+
+    raise ValueError(f"Cannot upload: {type(media)}")
+
+
+async def download(mx: Any, meta: DownloadMeta = None) -> Any:
+    if meta is None:
+        meta = DownloadMeta()
+
+    source = meta.url
+    if source is None:
+        raise ValueError("DownloadMeta.url is required")
+
+    if isinstance(source, Media):
+        return await _get_media_bytes(mx, source.url) if not meta.thumbnail else None
+
+    if isinstance(source, (str, bytes)):
+        return await _get_media_bytes(mx, source)
+
+    if hasattr(source, "content"):
         from .events import decrypt_event
 
-        await decrypt_event(mx, event_or_content)
-        content = event_or_content.content
+        g = await decrypt_event(mx, source)
+        if not g:
+            raise 
+        content = source.content
     else:
-        content = event_or_content
+        content = source
+
+    if meta.thumbnail:
+        info = getattr(content, "info", None)
+        if not info:
+            return None
+        thumb_file = getattr(info, "thumbnail_file", None)
+        if thumb_file:
+            ciphertext = await mx.client.download_media(thumb_file.url)
+            return decrypt_attachment(
+                ciphertext,
+                thumb_file.key.key,
+                thumb_file.hashes.get("sha256"),
+                thumb_file.iv,
+            )
+        thumb_url = getattr(info, "thumbnail_url", None)
+        if thumb_url:
+            return await mx.client.download_media(str(thumb_url))
+        return None
 
     filename = (
         getattr(content, "filename", None)
@@ -65,36 +119,6 @@ async def download_message_media(mx: Any, event_or_content: Any) -> tuple[bytes,
 
     data = await mx.client.download_media(url)
     return data, filename, mimetype, size or len(data)
-
-
-async def download_message_thumbnail(mx: Any, event_or_content: Any) -> Optional[bytes]:
-    if hasattr(event_or_content, "content"):
-        from .events import decrypt_event
-
-        await decrypt_event(mx, event_or_content)
-        content = event_or_content.content
-    else:
-        content = event_or_content
-
-    info = getattr(content, "info", None)
-    if not info:
-        return None
-
-    thumb_file = getattr(info, "thumbnail_file", None)
-    if thumb_file:
-        ciphertext = await mx.client.download_media(thumb_file.url)
-        return decrypt_attachment(
-            ciphertext,
-            thumb_file.key.key,
-            thumb_file.hashes.get("sha256"),
-            thumb_file.iv,
-        )
-
-    thumb_url = getattr(info, "thumbnail_url", None)
-    if thumb_url:
-        return await mx.client.download_media(str(thumb_url))
-
-    return None
 
 
 async def encrypt(

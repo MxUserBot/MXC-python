@@ -6,7 +6,7 @@
 
 import io
 from dataclasses import dataclass
-from typing import Union
+from typing import Any, Union
 
 from loguru import logger
 from mautrix.types import (
@@ -124,3 +124,9 @@ class Sticker(Image):
 
 
 AnyMedia = Union[Media, Image, Audio, Video, Sticker]
+
+
+@dataclass
+class DownloadMeta:
+    url: Any = None
+    thumbnail: bool = False

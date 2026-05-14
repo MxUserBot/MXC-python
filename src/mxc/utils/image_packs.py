@@ -237,10 +237,11 @@ async def resolve_shortcode(
 
 
 async def download_and_upload_media(mx, event) -> Optional[str]:
-    from .media import download_message_media
+    from mxc.types.media import DownloadMeta
+    from .media import download
 
     try:
-        data, filename, mimetype, _ = await download_message_media(mx, event)
+        data, filename, mimetype, _ = await download(mx, meta=DownloadMeta(url=event))
         mxc = await mx.client.upload_media(data, mime_type=mimetype, filename=filename)
         return mxc
     except Exception:

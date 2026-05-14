@@ -43,8 +43,7 @@ from .events import (
 )
 from .media import (
     clear_rpc,
-    download_message_media,
-    download_message_thumbnail,
+    download,
     encrypt,
     send_audio,
     send_document,
@@ -53,8 +52,9 @@ from .media import (
     send_video,
     set_rpc_activity,
     set_rpc_media,
+    upload,
 )
-from .messaging import answer, pin, pin_room, unpin_room
+from .messaging import answer, create_room, join_room, pin, unpin
 from .limitter import mautrix_rate_limit_patch, mautrix_rate_limit_unpatch
 from .image_packs import (
     IMAGE_PACK_ROOMS_STABLE,
@@ -132,8 +132,9 @@ __all__ = [
     "get_reply_text",
     "is_dm",
     "normalize_text",
+    "create_room",
+    "join_room",
     "pin",
-    "pin_room",
     "request",
     "safe_remove",
     "safe_save",
@@ -146,7 +147,8 @@ __all__ = [
     "set_rpc_media",
     "should_ignore_event",
     "starts_with_command",
-    "unpin_room",
+    "unpin",
+    "upload",
     "IMAGE_PACK_ROOMS_STABLE",
     "IMAGE_PACK_ROOMS_UNSTABLE",
     "IMAGE_PACK_STABLE",
@@ -154,7 +156,7 @@ __all__ = [
     "USAGE_EMOTICON",
     "USAGE_STICKER",
     "download_and_upload_media",
-    "download_message_thumbnail",
+    "download",
     "emoji_for_usage",
     "fetch_pack_state",
     "find_pack_by_name",
