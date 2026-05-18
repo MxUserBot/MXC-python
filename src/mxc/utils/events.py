@@ -5,9 +5,11 @@
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
 import asyncio
+from types import SimpleNamespace
 from typing import Optional
 
 from mautrix.types import Event, EventType, MessageEvent
+from mautrix.types.util.obj import Obj
 
 from mxc.types import MsgType
 
@@ -172,6 +174,11 @@ async def _apply_latest_edit(mx, room_id: str, event_id: str, target: MessageEve
         c_dict = content.serialize() if hasattr(content, "serialize") else (content if isinstance(content, dict) else {})
         m_new_content = c_dict.get("m.new_content") or {}
         
+        new_keys = (new_content.__dict__.keys() if isinstance(new_content, Obj) else m_new_content.keys()) - {"body", "formatted_body", "msgtype"}
+        if new_keys:
+            target.content = Obj(**m_new_content)
+            return
+        
         new_body = getattr(new_content, "body", None) if new_content else m_new_content.get("body")
         
         if new_body is not None:
@@ -282,3 +289,18 @@ async def get_context_events(
 async def is_dm(mx, room_id: str) -> bool:
     direct_data = await mx.client.get_account_data(EventType.DIRECT)
     return any(room_id in rooms for rooms in direct_data.values())
+
+
+async def get_profile(mx, mxid: str) -> SimpleNamespace:
+    profile = await mx.client.get_profile(mxid)
+    presence = await mx.client.get_presence(mxid)
+    return SimpleNamespace(
+        displayname=profile.displayname or mxid,
+        avatar_url=profile.avatar_url,
+        membership=profile.membership,
+        presence=presence.presence,
+        status_msg=presence.status_msg,
+        last_active_ago=presence.last_active_ago,
+        currently_active=presence.currently_active,
+        mxid=mxid,
+    )

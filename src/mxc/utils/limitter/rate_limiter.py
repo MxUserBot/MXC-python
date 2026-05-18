@@ -72,15 +72,15 @@ class AdaptiveGate:
         if self._gap == 0:
             self._gap = 2.0
         else:
-            self._gap = min(self.max_gap, self._gap * 2.0)
+            self._gap = min(15.0, self._gap * 2.0)
         self._last_429 = now
         return self._gap
 
 
 _BUCKET = TokenBucket(5, 3, "global")
 _REACTION = AdaptiveGate(start_gap=1.0, max_gap=10.0, min_gap=0.5)
-_MESSAGE = AdaptiveGate(start_gap=0.0, max_gap=10.0, min_gap=0.0)
-_STATE = AdaptiveGate(start_gap=0.0, max_gap=10.0, min_gap=0.0)
+_MESSAGE = AdaptiveGate(start_gap=0.3, max_gap=15.0, min_gap=0.0)
+_STATE = AdaptiveGate(start_gap=0.3, max_gap=15.0, min_gap=0.0)
 _original_send: Optional[Callable] = None
 _patched: bool = False
 
@@ -115,7 +115,7 @@ def mautrix_rate_limit_patch() -> None:
 
         gate = _pick_gate(url)
 
-        for attempt in range(2):
+        while True:
             if gate:
                 await gate.acquire()
 
@@ -129,16 +129,12 @@ def mautrix_rate_limit_patch() -> None:
                 is_rate_limit = isinstance(e, MLimitExceeded) or e.http_status == 429
                 if not is_rate_limit:
                     raise
-                if attempt >= 1:
-                    raise
 
                 gap = gate.report_429() if gate else 0
                 logger.warning(
                     f"429 on {method} {getattr(url, 'path', url)} "
                     f"retry via gap={gap:.1f}s"
                 )
-
-        raise RuntimeError("unreachable")
 
     HTTPAPI._send = _rate_limited_send
     _patched = True

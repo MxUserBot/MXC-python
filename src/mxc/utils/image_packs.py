@@ -10,7 +10,6 @@ from typing import Optional
 
 from mautrix.types import EventType, Event
 
-from .common import request
 
 IMAGE_PACK_STABLE = "m.room.image_pack"
 IMAGE_PACK_ROOMS_STABLE = "m.image_pack.rooms"

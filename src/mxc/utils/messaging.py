@@ -18,8 +18,10 @@ async def answer(
     room_id: str | None = None,
     event: Any = None,
     edit_id: str | None = "-1",
+    reply_to: str | None = None,
     reply_markup: Any = None,
     emoji_map: dict | None = None,
+    mentions: dict | None = None,
     **kwargs,
 ) -> str:
     if media is None:
@@ -77,6 +79,12 @@ async def answer(
 
     if edit_id:
         content.set_edit(edit_id)
+
+    if reply_to:
+        content.set_reply(reply_to)
+
+    if mentions:
+        content["m.mentions"] = mentions
 
     res = await mx.client.send_message_event(
         room_id=room_id,
@@ -162,6 +170,47 @@ async def pin(mx, room_id: str, event_id: str | None = None) -> bool:
     except Exception as e:
         logger.error(f"Failed to favorite room {room_id}: {e}")
         return False
+
+
+async def set_room_nick(mx, room_id: str, displayname: str) -> None:
+    """Set your display name in a specific room."""
+    await mx.client.api.request(
+        "PUT",
+        f"/_matrix/client/v3/rooms/{room_id}/state/m.room.member/{mx.client.mxid}",
+        content={"membership": "join", "displayname": displayname},
+    )
+
+
+async def forward(mx, event, room_id: str) -> str:
+    """Forward a message event to another room. Returns the new event_id."""
+    content = event.content
+    text = getattr(content, "body", "") or ""
+
+    file_ = getattr(content, "file", None)
+    url = getattr(content, "url", None)
+    if file_ or url:
+        from ..types.media import Audio, Document, Image, Video, DownloadMeta
+        from .media import download
+
+        d = await download(mx, DownloadMeta(url=content))
+        if d:
+            mime = (d.mimetype or "").lower()
+            info = getattr(content, "info", None)
+            w = getattr(info, "width", None) if info else None
+            h = getattr(info, "height", None) if info else None
+
+            if mime.startswith("image/"):
+                media = Image(url=d.url, mimetype=d.mimetype, filename=d.filename, w=w, h=h)
+            elif mime.startswith("video/"):
+                media = Video(url=d.url, mimetype=d.mimetype, filename=d.filename, w=w, h=h)
+            elif mime.startswith("audio/"):
+                media = Audio(url=d.url, mimetype=d.mimetype, filename=d.filename)
+            else:
+                media = Document(url=d.url, mimetype=d.mimetype, filename=d.filename)
+
+            return await answer(mx, text=text, media=media, room_id=room_id)
+
+    return await answer(mx, text=text, room_id=room_id)
 
 
 async def unpin(mx, room_id: str, event_id: str | None = None) -> bool:

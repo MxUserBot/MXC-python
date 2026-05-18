@@ -6,6 +6,7 @@
 
 import io
 import uuid
+from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 from mautrix.api import Method
@@ -15,7 +16,15 @@ from PIL import Image as PILImage
 
 from mxc.types.media import DownloadMeta, Image as MxcImage, Media
 
-from .common import request
+from ._http import request
+
+
+@dataclass
+class DownloadedMedia:
+    url: bytes
+    filename: str
+    mimetype: str
+    size: int
 
 RPC_NAMESPACE = "com.ip-logger.msc4320.rpc"
 
@@ -75,50 +84,58 @@ async def download(mx: Any, meta: DownloadMeta = None) -> Any:
     else:
         content = source
 
+    def _safe_get(obj, *keys):
+        for key in keys:
+            if isinstance(obj, dict):
+                obj = obj.get(key)
+            else:
+                obj = getattr(obj, key, None)
+            if obj is None:
+                return None
+        return obj
+
     if meta.thumbnail:
-        info = getattr(content, "info", None)
+        info = _safe_get(content, "info")
         if not info:
             return None
-        thumb_file = getattr(info, "thumbnail_file", None)
+        thumb_file = _safe_get(info, "thumbnail_file")
         if thumb_file:
-            ciphertext = await mx.client.download_media(thumb_file.url)
-            return decrypt_attachment(
-                ciphertext,
-                thumb_file.key.key,
-                thumb_file.hashes.get("sha256"),
-                thumb_file.iv,
-            )
-        thumb_url = getattr(info, "thumbnail_url", None)
+            url = _safe_get(thumb_file, "url")
+            key = _safe_get(thumb_file, "key", "k") or _safe_get(thumb_file, "key", "key")
+            sha256 = _safe_get(thumb_file, "hashes", "sha256")
+            iv = _safe_get(thumb_file, "iv")
+            ciphertext = await mx.client.download_media(url)
+            return decrypt_attachment(ciphertext, key, sha256, iv)
+        thumb_url = _safe_get(info, "thumbnail_url")
         if thumb_url:
             return await mx.client.download_media(str(thumb_url))
         return None
 
     filename = (
-        getattr(content, "filename", None)
-        or getattr(content, "body", None)
+        _safe_get(content, "filename")
+        or _safe_get(content, "body")
         or f"matrix_{uuid.uuid4().hex[:8]}"
     )
-    info = getattr(content, "info", None)
-    mimetype = getattr(info, "mimetype", None) or "application/octet-stream"
-    size = getattr(info, "size", None)
+    info = _safe_get(content, "info")
+    mimetype = _safe_get(info, "mimetype") or "application/octet-stream"
+    size = _safe_get(info, "size")
 
-    encrypted_file = getattr(content, "file", None)
+    encrypted_file = _safe_get(content, "file")
     if encrypted_file:
-        ciphertext = await mx.client.download_media(encrypted_file.url)
-        data = decrypt_attachment(
-            ciphertext,
-            encrypted_file.key.key,
-            encrypted_file.hashes.get("sha256"),
-            encrypted_file.iv,
-        )
-        return data, filename, mimetype, size or len(data)
+        url = _safe_get(encrypted_file, "url")
+        key = _safe_get(encrypted_file, "key", "k") or _safe_get(encrypted_file, "key", "key")
+        sha256 = _safe_get(encrypted_file, "hashes", "sha256")
+        iv = _safe_get(encrypted_file, "iv")
+        ciphertext = await mx.client.download_media(url)
+        data = decrypt_attachment(ciphertext, key, sha256, iv)
+        return DownloadedMedia(url=data, filename=filename, mimetype=mimetype, size=size or len(data))
 
-    url = getattr(content, "url", None)
+    url = _safe_get(content, "url")
     if not url:
-        raise ValueError("Matrix message has no downloadable media URL")
+        return None
 
     data = await mx.client.download_media(url)
-    return data, filename, mimetype, size or len(data)
+    return DownloadedMedia(url=data, filename=filename, mimetype=mimetype, size=size or len(data))
 
 
 async def encrypt(
