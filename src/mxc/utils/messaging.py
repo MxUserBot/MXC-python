@@ -213,6 +213,58 @@ async def forward(mx, event, room_id: str) -> str:
     return await answer(mx, text=text, room_id=room_id)
 
 
+async def get_power_levels(mx, room_id: str):
+    """Get power levels for a room. Returns PowerLevelStateEventContent or None."""
+    try:
+        return await mx.client.state_store.get_power_levels(room_id)
+    except Exception:
+        pass
+    try:
+        raw = await mx.client.api.request(
+            "GET", f"/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels"
+        )
+        from mautrix.types import PowerLevelStateEventContent
+        pl = PowerLevelStateEventContent.deserialize(raw)
+        await mx.client.state_store.set_power_levels(room_id, pl)
+        return pl
+    except Exception:
+        return None
+
+
+async def set_power_level(mx, room_id: str, user_id: str, level: int) -> bool:
+    """Set power level for a user in a room."""
+    try:
+        pl = await get_power_levels(mx, room_id)
+        if not pl:
+            return False
+        pl.set_user_level(user_id, level)
+        await mx.client.send_state_event(room_id, EventType.ROOM_POWER_LEVELS, pl)
+        await mx.client.state_store.set_power_levels(room_id, pl)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set power level for {user_id} in {room_id}: {e}")
+        return False
+
+
+async def get_room(mx, room_id: str) -> dict | None:
+    """Get room info including members, power levels, and state."""
+    try:
+        members = await mx.client.get_joined_members(room_id)
+        pl = await get_power_levels(mx, room_id)
+        return {
+            "room_id": room_id,
+            "members": members,
+            "power_levels": pl,
+            "admins": [
+                uid for uid in members
+                if pl and pl.users.get(uid, pl.users_default) >= (pl.kick or 50)
+            ] if pl else [],
+        }
+    except Exception as e:
+        logger.error(f"Failed to get room info for {room_id}: {e}")
+        return None
+
+
 async def unpin(mx, room_id: str, event_id: str | None = None) -> bool:
     if event_id:
         try:

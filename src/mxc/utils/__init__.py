@@ -38,7 +38,7 @@ from .media import (
     set_rpc_media,
     upload,
 )
-from .messaging import answer, create_room, forward, join_room, pin, set_room_nick, unpin
+from .messaging import answer, create_room, forward, get_power_levels, get_room, join_room, pin, set_power_level, set_room_nick, unpin
 from .limitter import mautrix_rate_limit_patch, mautrix_rate_limit_unpatch
 from .image_packs import (
     IMAGE_PACK_ROOMS_STABLE,
@@ -100,16 +100,19 @@ __all__ = [
     "encrypt",
     "fetch_room_messages",
     "get_context_events",
+    "get_power_levels",
     "get_prefix",
     "get_profile",
     "get_reply_event",
     "get_reply_text",
+    "get_room",
     "is_dm",
     "create_room",
     "forward",
     "join_room",
     "pin",
     "request",
+    "set_power_level",
     "set_room_nick",
     "should_ignore_event",
     "starts_with_command",
