@@ -6,6 +6,7 @@
 
 import asyncio
 import inspect
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -19,6 +20,7 @@ pd_config = ConfigDict(arbitrary_types_allowed=True)
 class BaseCallBack:
     def __init__(self, bot):
         self.bot = bot
+        self._dispatched: dict[str, float] = {}
 
     async def get_perm_module(self, mod):
         return self.bot.interface
@@ -45,6 +47,14 @@ class BaseCallBack:
         return evt
 
     async def _dispatch_event(self, evt: Any) -> None:
+        if hasattr(evt, "event_id"):
+            now = time.time()
+            if evt.event_id in self._dispatched and now - self._dispatched[evt.event_id] < 5:
+                return
+            self._dispatched[evt.event_id] = now
+            if len(self._dispatched) > 1000:
+                cutoff = now - 60
+                self._dispatched = {k: v for k, v in self._dispatched.items() if v > cutoff}
         from mxc.utils import dispatch_emoji_callback
 
         event_type = evt.type
